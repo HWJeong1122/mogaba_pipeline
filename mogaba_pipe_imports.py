@@ -1,49 +1,36 @@
-import re
-import os
-import time
-import gc
-import emcee
-import corner
-import numpy as np
-import pandas as pd
+import re, csv, os, sys, time, gc, emcee, corner
+import numpy             as np
+import pandas            as pd
 import matplotlib.pyplot as plt
-import scipy.special as ss
-from datetime import datetime
-from scipy.optimize import minimize
-from scipy.optimize import curve_fit
-from uncertainties import ufloat
+import scipy.special     as ss
+from datetime            import datetime
+from scipy.optimize      import minimize
+from scipy.optimize      import curve_fit
+from uncertainties       import ufloat
 from astropy.coordinates import solar_system_ephemeris, EarthLocation
 from astropy.coordinates import get_body_barycentric, get_body
-from uncertainties import unumpy as unp
-from astropy import constants as C
-from astropy import units as u
-from astropy.time import Time as Ati
-from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+from uncertainties       import unumpy    as unp
+from astropy             import constants as C
+from astropy             import units     as u
+from astropy.time        import Time      as Ati
+from matplotlib.ticker   import (MultipleLocator, AutoMinorLocator)
+from imports import dropbox_path
 
-fabs = np.fabs
-nconc = np.concatenate
-sin = np.sin
-cos = np.cos
-tan = np.tan
-exp = np.exp
-e = np.e
-pi = np.pi
-ln = np.log
-log = np.log10
-angle = np.angle
-sqrt = np.sqrt
-sqr = np.square
-real = np.real
-imag = np.imag
+abort = sys.exit
 
-gc_kys = pd.read_excel("KVN_GC.xlsx", sheet_name="KYS")
-gc_kus = pd.read_excel("KVN_GC.xlsx", sheet_name="KUS")
-gc_ktn = pd.read_excel("KVN_GC.xlsx", sheet_name="KTN")
+fabs=np.fabs ; nconc=np.concatenate
+sin =np.sin  ; cos  =np.cos    ; tan  =np.tan
+exp =np.exp  ; e    =np.e      ; pi   =np.pi
+ln  =np.log  ; log  =np.log10  ; angle=np.angle
+sqrt=np.sqrt ; sqr  =np.square
+real=np.real ; imag =np.imag
 
-string_month = {
-    'JAN':'01', 'FEB':'02', 'MAR':'03', 'APR':'04', 'MAY':'05', 'JUN':'06',
-    'JUL':'07', 'AUG':'08', 'SEP':'09', 'OCT':'10', 'NOV':'11', 'DEC':'12'
-}
+gc_kys = pd.read_excel(f"{dropbox_path}/AGN/KVN_SD/MOGABA_pipe/KVN_GC.xlsx", sheet_name="KYS")
+gc_kus = pd.read_excel(f"{dropbox_path}/AGN/KVN_SD/MOGABA_pipe/KVN_GC.xlsx", sheet_name="KUS")
+gc_ktn = pd.read_excel(f"{dropbox_path}/AGN/KVN_SD/MOGABA_pipe/KVN_GC.xlsx", sheet_name="KTN")
+
+string_month = {'JAN':'01', 'FEB':'02', 'MAR':'03', 'APR':'04', 'MAY':'05', 'JUN':'06',
+                'JUL':'07', 'AUG':'08', 'SEP':'09', 'OCT':'10', 'NOV':'11', 'DEC':'12'}
 
 def cte(covariance):
     return np.sqrt(np.diag(covariance))
@@ -77,12 +64,9 @@ def format_time(date_str, time_float):
     h = int(time_float//3600)
     m = int((time_float-h*3600)//60)
     s = int(round(float((time_float-h*3600)%60),0))
-    if h < 10:
-        h='0%s'%(h)
-    if m < 10:
-        m='0%s'%(m)
-    if s < 10:
-        s='0%s'%(s)
+    if h<10: h='0%s'%(h)
+    if m<10: m='0%s'%(m)
+    if s<10: s='0%s'%(s)
     datetime = '%s %s:%s:%s'%(date_str, h, m, s)
     return datetime
 
@@ -113,7 +97,7 @@ def mkpipelog(path, file):
 
 def writelog(path, file, text, mode):
     get_time = time.strftime("%Y-%m-%d %X", time.localtime(time.time()))
-    openlog = open(path+file, mode=mode)
+    openlog  = open(path+file, mode=mode)
     openlog.write('(%s) %s\n'%(get_time, text))
     openlog.close()
 
@@ -126,19 +110,19 @@ def iwavg(value, sigma):
     return iwavg_value, iwavg_sigma
 
 def cal_gain_curve(station, year, freq, el):
-    if   station == "KYS":
+    if   station=="KYS":
         gcurve = gc_kys
-    elif station == "KUS":
+    elif station=="KUS":
         gcurve = gc_kus
-    elif station == "KTN":
+    elif station=="KTN":
         gcurve = gc_ktn
-    if int(freq) == 25:
+    if int(freq)==25:
         freq=22
-    if int(freq) == 94:
+    if int(freq)==94:
         freq=86
-    if int(freq) == 141:
+    if int(freq)==141:
         freq=129
-    gcurve_ = gcurve[gcurve.Season == int(year)]
+    gcurve_ = gcurve[gcurve.Season==int(year)]
 
     if freq == 21:
         a0 = gcurve_["A0_22"]

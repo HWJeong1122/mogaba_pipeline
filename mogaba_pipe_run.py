@@ -4,6 +4,9 @@ from mogaba_pipe_cross       import *
 from mogaba_pipe_polscripts  import *
 from mogaba_pipe_pos         import *
 
+import warnings
+warnings.filterwarnings("ignore")
+
 """ MOGABA pipeline script """
 SaveCSFit  = True           # if 'True', save cross-scan Gaussian fitting plots
 SaveCSLog  = True           # if 'True', save cross-scan log info
@@ -12,6 +15,8 @@ SaveACPlot = False          # if 'True', auto-correlation plots will be saved
 Auto_Flag  = False          # if 'True', auto-flagging mode is applied in position-switching data
 Run_CSFit  = True           # if 'True', cross-scan fit will be performed using the MCMC ; elsewhere, skip cs-fit
 LR_Swap    = False          # if 'True', LR rx-pol switches to RL rx-pol
+FlagChannel= False
+perc_tvfc  = 16
                             # !!! Please note that LR-swapping is forecd at 129 GHz (@ line 353) !!!
 antenna = f"tn".upper()
 station = f"K{antenna}"     # should be in format of 'KYS' / 'KUS' / 'KPC' / 'KTN'
@@ -273,6 +278,8 @@ for Nfile, file in enumerate(files):
         writelog(path_dir, pipe_log, "Initial PS-Setting is Done.", "a")
         pipe_pos.set_init()
         pipe_pos.SaveACPlot = SaveACPlot
+        pipe_pos.FlagChannel = FlagChannel
+        pipe_pos.perc_tvfc = perc_tvfc
 
         pslog = file.replace(".sdd", ".xlsx")     # log file name
         pipe_pos.savepslog = SavePSLog

@@ -1,5 +1,6 @@
 
 from __main__ import *
+from sklearn.cluster import DBSCAN as dbs
 import pyclass as p
 
 c_cs = p.comm
@@ -107,16 +108,16 @@ class CrossScan:
 
     def load_source_info(self, time_thresh=60):
         Nscans  = int(g_cs.found)
-        sources = np.array([]).astype(str)
-        scans   = np.array([]).astype(int)
-        dtime   = np.array([]).astype(str)
-        tsys    = np.array([]).astype(float)
-        tau     = np.array([]).astype(float)
-        az      = np.array([]).astype(float)
-        el      = np.array([]).astype(float)
-        freq    = np.array([]).astype(int)
-        line    = np.array([]).astype(str)
-        lr_pol  = np.array([]).astype(str)
+        sources = np.array([], dtype="U32")
+        scans   = np.array([], dtype="i4")
+        dtime   = np.array([], dtype="U32")
+        tsys    = np.array([], dtype="f8")
+        tau     = np.array([], dtype="f8")
+        az      = np.array([], dtype="f8")
+        el      = np.array([], dtype="f8")
+        freq    = np.array([], dtype="i4")
+        line    = np.array([], dtype="U32")
+        lr_pol  = np.array([], dtype="U32")
         for n in range(Nscans):
             if n==0: c_cs("get first")
             else   : c_cs("get next")
@@ -126,8 +127,12 @@ class CrossScan:
             c_cs("let sourdate 'r%head%gen%cdobs'")
             date     = format_date(str(g_cs.sourdate.__sicdata__))
             datetime = format_time(date, g_cs.ut.astype(float))
-            source   = str(g_cs.sour.__sicdata__ ).replace('b','').replace("'",'').replace(' ','')
-            teles    = str(g_cs.teles.astype(str)).replace('b','').replace("'",'').replace(' ','')
+            # source = str(g_cs.sour.__sicdata__ ).replace('b','').replace("'",'').replace(' ','')
+            # teles = str(g_cs.teles.astype(str)).replace('b','').replace("'",'').replace(' ','')
+            source = np.char.decode(g_cs.sour.__sicdata__, "utf-8")
+            teles = np.char.decode(g_cs.teles, "utf-8")
+            source = str(np.char.rstrip(source))
+            teles = str(np.char.rstrip(teles))
             rl = teles[-1]
             f  = str(teles.split('%s21M'%(self.station))[1].split('%s'%(rl))[0])
 
@@ -168,12 +173,12 @@ class CrossScan:
 
         path_dat_cs = self.path_dir + 'data_cs/'
         mkdir(path_dat_cs)
-        if cs_log_all.shape[0] < nchan:
+        if cs_log_all.shape[0]<nchan:
             cols = ['Source', 'Date', 'Year', 'MJD', 'ScanNum', 'Nseq', 'Nscan', 'Tsys_1', 'dTsys_1', 'Tsys_2', 'dTsys_2', 'Tau_1', 'dTau_1', 'Tau_2', 'dTau_2', 'Az', 'El', 'Scan1', 'Scan2']
             self.cs_log_sour = pd.DataFrame([np.nan for i in range(len(cols))], index=cols).transpose()
         else:
-            cs_log_all['Time'][nchan:] =np.array(cs_log_all['Time'][nchan:]) -np.array(cs_log_all['Time'][0:-nchan])
-            cs_log_all['Time'][0:nchan]=np.array(cs_log_all['Time'][0:nchan])-cs_log_all['Time'][0]
+            cs_log_all['Time'][nchan:]  = np.array(cs_log_all['Time'][nchan:]) - np.array(cs_log_all['Time'][0:-nchan])
+            cs_log_all['Time'][0:nchan] = np.array(cs_log_all['Time'][0:nchan]) - cs_log_all['Time'][0]
 
             sep = np.append(np.array([0]), np.array(np.where(cs_log_all['Time'] > time_thresh)[0][0::nchan]))
             cs_log_sour = cs_log_all.iloc[sep].reset_index(drop=True)
@@ -223,7 +228,7 @@ class CrossScan:
                     pass
 
             cs_log_sour  = cs_log_sour[['Source', 'Date', 'Year', 'MJD', 'ScanNum', 'Nseq', 'Nscan', 'Tsys_1', 'dTsys_1', 'Tsys_2', 'dTsys_2', 'Tau_1', 'dTau_1', 'Tau_2', 'dTau_2', 'Az', 'El', 'Scan1', 'Scan2']]
-            drop_lowscan = np.where(cs_log_sour['Nscan']<int(4*self.npol/4))[0]
+            drop_lowscan = np.where(cs_log_sour['Nscan']<int(16*self.npol/4))[0]
             cs_log_sour  = cs_log_sour.drop(drop_lowscan, axis=0).reset_index(drop=True)
 
             self.cs_log_sour = cs_log_sour
@@ -237,23 +242,18 @@ class CrossScan:
 
         log_scans = self.cs_log_sour.copy()
         log_all   = self.cs_log_all.copy()
-        log_scans = log_scans[log_scans.Source==self.cs_source].reset_index(drop=True)
+        log_scans = log_scans[log_scans.Source==self.cs_source]
         log_scans = log_scans[log_scans.Nseq  ==self.nseq     ].reset_index(drop=True)
         scan1, scan2  = log_scans['Scan1'][0], log_scans['Scan2'][0]
 
         log_   = self.cs_log_all.copy()
-        log_   = log_[np.array(log_['Source']).astype(str)==str(self.cs_source)].reset_index(drop=True)
-        log_   = log_[np.array(log_['Line']  ).astype(str)==str(self.azel)     ].reset_index(drop=True)
-        log_   = log_[np.array(log_['Freq']  ).astype(str)==str(self.freq)     ].reset_index(drop=True)
+        log_   = log_[np.array(log_['Source']).astype(str)==str(self.cs_source)]
+        log_   = log_[np.array(log_['Line']  ).astype(str)==str(self.azel)     ]
+        log_   = log_[np.array(log_['Freq']  ).astype(str)==str(self.freq)     ]
         log_   = log_[np.array(log_['LR_pol']).astype(str)==str(lr_pol)        ].reset_index(drop=True)
-        log_   = log_[
-            np.logical_and(
-                int(scan1) <= np.array(log_['ScanNum']).astype(int),
-                np.array(log_['ScanNum']).astype(int) <= int(scan2)
-            )
-        ].reset_index(drop=True)
-
-        if log_.shape[0]>=1:
+        log_   = log_[np.logical_and(int(scan1)<=np.array(log_['ScanNum']).astype(int),
+                                     np.array(log_['ScanNum']).astype(int)<=int(scan2))].reset_index(drop=True)
+        if log_.shape[0]>=2:
             self.set_cs_default()
             c_cs("set tel %s" %(self.telname))
             c_cs("set sou %s" %(self.cs_source))
@@ -306,7 +306,7 @@ class CrossScan:
         u_mcmc = cmc.u_mcmc
         f_smpl = cmc.f_smpl
 
-        y_model    = Gaussian(x, *p_mcmc[:-1])
+        y_model = Gaussian(x, *p_mcmc)
         y_residual = y-y_model
         dy=np.std(y_residual)
         self.fit_p, self.fit_c, self.f_smpl  = p_mcmc, u_mcmc, f_smpl
@@ -314,7 +314,8 @@ class CrossScan:
 
     def run_cs(self):
         cs_log_all  = self.cs_log_all
-        cs_log_sour = self.cs_log_sour[np.logical_and(self.cs_log_sour.Tsys_1>=0, self.cs_log_sour.Tsys_2>=0)].reset_index(drop=True)
+        print(self.cs_log_sour.columns)
+        cs_log_sour = self.cs_log_sour[np.logical_and(self.cs_log_sour.Tsys_1>0, self.cs_log_sour.Tsys_2>0)].reset_index(drop=True)
         cs_log_sour = check_neg_tsys(cs_log_all, cs_log_sour)
         cs_log_all['Freq'] = np.array(cs_log_all['Freq']).astype(int).astype(str)
         self.npol = len(np.unique(cs_log_all['Freq']))
@@ -325,13 +326,18 @@ class CrossScan:
         freqs   = np.sort(np.unique(cs_log_all['Freq']).astype(int))
         self.freqs = freqs
 
+        self.path_fig_cs = self.path_dir + 'Figures/cs/%s_%s/'%(self.station, self.date)
+        mkdir(self.path_fig_cs)
+        mkdir(self.path_fig_cs+'../CS_Logs/')
+        if self.saveplot:
+            self.SaveCSLog()
+
         for Nfreq, freq in enumerate(freqs):
             fwhm  = ((C.c/(freq*u.GHz)).to(u.m)/(21*u.m)) * u.rad.to(u.arcsecond)
             self.fwhm_b = fwhm
             if Nfreq==0:
                 self.date = self.cs_log_all['Date'][0].split(' ')[0]
             self.freq = freq
-            self.path_fig_cs = self.path_dir + 'Figures/cs/%s_%s/'%(self.station, self.date)
             self.path_dat_cs = self.path_dir + 'data_cs/%s/'%(self.freq)
             sours = []
             mjds  = []
@@ -340,6 +346,8 @@ class CrossScan:
             x_r, y_r, dy_r   = [], [], []
             peak_l , peak_r  = [], []
             dpeak_l, dpeak_r = [], []
+            fwhm_l, fwhm_r = [], []
+            offs_l, offs_r = [], []
             els = []
             for Nsour, source in enumerate(sources):
                 scan1 = cs_log_sour.iloc[Nsour]['Scan1']
@@ -391,6 +399,9 @@ class CrossScan:
                     peak_el = peak_el * e**( 4*ln(2) * (offs_az/fwhm_el)**2 )
                     peak_T  = (peak_az+peak_el)/2
 
+                    fwhm_ = (fwhm_az + fwhm_el)/2
+                    offs_ = (offs_az**2 + offs_el**2)**0.5
+
                     gain = cal_gain_curve(self.station, int(self.date[:4]), self.freq, el)
                     peak_T /= gain
                     if unp.nominal_values(peak_T)/unp.std_devs(peak_T)<=self.snr:
@@ -401,10 +412,14 @@ class CrossScan:
                             nseqs  .append(nseq  )
                             peak_l .append(np.nan)
                             dpeak_l.append(np.nan)
+                            fwhm_l .append(np.nan)
+                            offs_l .append(np.nan)
                             dy_l   .append(np.nan)
                         elif lr_pol=='R':
                             peak_r .append(np.nan)
                             dpeak_r.append(np.nan)
+                            fwhm_r .append(np.nan)
+                            offs_r .append(np.nan)
                             dy_r   .append(np.nan)
                     else:
                         if lr_pol=='L':
@@ -413,14 +428,18 @@ class CrossScan:
                             nseqs  .append(nseq  )
                             peak_l .append(np.round(unp.nominal_values(peak_T), 5))
                             dpeak_l.append(np.round(unp.std_devs(peak_T)      , 5))
+                            fwhm_l .append(np.round(unp.nominal_values(fwhm_) , 5))
+                            offs_l .append(np.round(unp.nominal_values(offs_) , 5))
                             dy_l   .append(np.round(self.dy                   , 5))
                         elif lr_pol=='R':
                             peak_r .append(np.round(unp.nominal_values(peak_T), 5))
                             dpeak_r.append(np.round(unp.std_devs(peak_T)      , 5))
+                            fwhm_r .append(np.round(unp.nominal_values(fwhm_) , 5))
+                            offs_r .append(np.round(unp.nominal_values(offs_) , 5))
                             dy_r   .append(np.round(self.dy                   , 5))
 
-            cs_fit_info = pd.DataFrame([sours, mjds, nseqs, els, peak_l, dpeak_l, dy_l, peak_r, dpeak_r, dy_r],
-                                       index=['Source', 'MJD', 'Nseq', 'El', 'Peak_L', 'dPeak_L', 'stdT_L', 'Peak_R', 'dPeak_R', 'stdT_R']).transpose()
+            cs_fit_info = pd.DataFrame([sours, mjds, nseqs, els, peak_l, dpeak_l, dy_l, peak_r, dpeak_r, dy_r, fwhm_l, fwhm_r, offs_l, offs_r],
+                                       index=['Source', 'MJD', 'Nseq', 'El', 'Peak_L', 'dPeak_L', 'stdT_L', 'Peak_R', 'dPeak_R', 'stdT_R', "fwhm_L", "fwhm_R", "offset_L", "offset_R"]).transpose()
             cs_fit_info.dropna(axis=0, inplace=True)
             cs_fit_info.reset_index(drop=True, inplace=True)
 
@@ -428,7 +447,7 @@ class CrossScan:
             aeff_planets = []
             if str(self.freq) in ['22', '43', '86', '129'] : aeff_planets.append('VENUS')
             if str(self.freq) in ['43', '86', '129']       : aeff_planets.append('MARS')
-            if str(self.freq) in ['22', '43']              : aeff_planets.append('JUPITER')
+            if str(self.freq) in ['22', '43', '86']        : aeff_planets.append('JUPITER')
             for Nsour in range(cs_fit_info.shape[0]):
                 source = cs_fit_info['Source'][Nsour]
                 if source.upper() in aeff_planets:
@@ -480,28 +499,35 @@ class CrossScan:
                         template["Tau"  ][i] = cs_log_sour[cs_log_sour.MJD==template["MJD"][i]]["Tau_2"  ]
                         template["dTsys"][i] = cs_log_sour[cs_log_sour.MJD==template["MJD"][i]]["dTsys_2"]
                         template["dTau" ][i] = cs_log_sour[cs_log_sour.MJD==template["MJD"][i]]["dTau_2" ]
-                rndidx = ['MJD', 'El', 'Peak_L', 'dPeak_L', 'stdT_L', 'Peak_R', 'dPeak_R', 'stdT_R', "Tsys", "dTsys", "Tau", "dTau", "eta_l", "deta_l", "eta_r", "deta_r"]
+                rndidx = ['MJD', 'El', 'Peak_L', 'dPeak_L', 'stdT_L', 'Peak_R', 'dPeak_R', 'stdT_R', "fwhm_L", "fwhm_R", "offset_L", "offset_R", "Tsys", "dTsys", "Tau", "dTau", "eta_l", "deta_l", "eta_r", "deta_r"]
                 for i in range(len(rndidx)):
                     template[rndidx[i]] = np.round(np.array(template[rndidx[i]], dtype="f8"), 3)
-                template = template[["Source", "MJD", "Nseq", "Peak_L", "dPeak_L", "stdT_L", "Peak_R", "dPeak_R", "stdT_R", "Tsys", "dTsys", "Tau", "dTau", "El", "eta_l", "deta_l", "eta_r", "deta_r"]]
+                template = template[["Source", "MJD", "Nseq", "Peak_L", "dPeak_L", "stdT_L", "Peak_R", "dPeak_R", "stdT_R", "fwhm_L", "fwhm_R", "offset_L", "offset_R", "Tsys", "dTsys", "Tau", "dTau", "El", "eta_l", "deta_l", "eta_r", "deta_r"]]
                 template = template.sort_values(by="MJD").reset_index(drop=True)
                 print("\n # {0} GHz #\n".format(freq), template, "\n")
                 dropidx = input("Enter index numbers to drop (if not, press 'enter'): ")
                 if dropidx:
-                    dropidx = list(map(int, dropidx.split(" ")))
+                    dropidx = dropidx.replace(",", " ")
+                    dropidx = dropidx.split(" ")
                     dropidx = list(filter(None, dropidx))
+                    dropidx = list(map(int, dropidx))
                     if dropidx:
                         dropidx.sort()
                         template = template.drop(dropidx, axis=0).reset_index(drop=True)
 
-                if template.shape[0]!=0:
-                    eta_l, deta_l = np.average(template["eta_l"], weights=template["deta_l"], returned=True)
-                    eta_r, deta_r = np.average(template["eta_r"], weights=template["deta_r"], returned=True)
+                print(template)
+
+                if template.shape[0] != 0:
+                    eta_l, deta_l = np.average(template["eta_l"], weights=1/template["deta_l"]**2, returned=True)
+                    eta_r, deta_r = np.average(template["eta_r"], weights=1/template["deta_r"]**2, returned=True)
                     cs_fit_info['eta_L'] = np.array([np.round(eta_l, 5) for i in range(cs_fit_info.shape[0])])
                     cs_fit_info['eta_R'] = np.array([np.round(eta_r, 5) for i in range(cs_fit_info.shape[0])])
                 else:
+                    eta_l, deta_l = np.nan, np.nan
+                    eta_r, deta_r = np.nan, np.nan
                     cs_fit_info['eta_L'] = np.array([np.nan for i in range(cs_fit_info.shape[0])])
                     cs_fit_info['eta_R'] = np.array([np.nan for i in range(cs_fit_info.shape[0])])
+
             else:
                 cs_fit_info["eta_L"] = np.full(cs_fit_info.shape[0], np.nan)
                 cs_fit_info["eta_R"] = np.full(cs_fit_info.shape[0], np.nan)
@@ -533,51 +559,49 @@ class CrossScan:
                     self.eta_l_2 = np.nan
                     self.eta_r_2 = np.nan
 
-            mkdir(self.path_fig_cs)
-            mkdir(self.path_fig_cs+'../CS_Logs/')
             cs_fit_info.to_excel(self.path_dat_cs + './%s_Log_CS_fit_%s_%s.xlsx' %(self.station, self.date, self.freq))
 
 
-        if self.saveplot:
-            self.SaveCSLog()
-
     def SaveCSFit(self):
         x, y, p, c, f_smpl = self.x, np.array(self.y,dtype="f8"), self.fit_p, self.fit_c, self.f_smpl
-        model = Gaussian(x, *p[:-1])
+        model = Gaussian(x, *p)
         path_dir = self.path_fig_cs
         if not os.path.isdir(path_dir): os.system('mkdir %s'%(path_dir))
 
-        labels = [r'$T_{\rm a,peak}$', r'$\Delta \delta$', r'${\rm FWHM}$', r'$T_{\rm base}$', r'${\rm log(f)}$']
+        labels = [r'$T_{\rm a,peak}$', r'$\Delta \delta$', r'${\rm FWHM}$', r'$T_{\rm base}$']
         fig_corner = corner.corner(f_smpl, labels=labels)
-        ax_cs = fig_corner.add_axes([0.65, 0.55,0.33,0.33])
+        ax_cs = fig_corner.add_axes([0.65, 0.57,0.33,0.33])
         ax_cs.plot(x, y    , c='black', lw=2.0)
         ax_cs.plot(x, model, c='red'  , lw=2.0)
-        fig_corner.suptitle('Cross-Scan\n%s | %s%s | %s\nT:%.2f (%.2f) | Off:%.2f (%.2f) | FWHM:%.2f (%.2f)'%(
-                        self.cs_source, self.freq, self.lr_pol, self.azel, p[0], c[0], p[1], c[1], p[2], c[2]), fontsize=14, fontweight='bold')
-        ax_cs.set_xlabel(r'$\delta \, {\rm(arcsec)}$', fontsize=15, fontweight='bold')
-        ax_cs.set_ylabel(r'$T_{\rm a} \, {\rm (K)}$' , fontsize=15, fontweight='bold')
+        fig_corner.suptitle(
+            'Cross-Scan\n%s | %s%s | %s\nT:%.2f (%.2f) | Off:%.2f (%.2f) | FWHM:%.2f (%.2f)'%(
+                self.cs_source, self.freq, self.lr_pol, self.azel, p[0], c[0], p[1], c[1], p[2], c[2]),
+            fontsize=14, x=0.63)
+        ax_cs.set_xlabel(r'$\delta \, {\rm(arcsec)}$', fontsize=15)
+        ax_cs.set_ylabel(r'$T_{\rm a} \, {\rm (K)}$' , fontsize=15)
         fig_corner.savefig(self.path_fig_cs + '%s_%s_CSFit_%s_%s%s_%s_%s.png'%(self.date, self.station, self.cs_source, self.freq, self.lr_pol, self.azel, self.nseq))
         close_figure(fig_corner)
 
     def SaveCSLog(self):
+        log_all = self.cs_log_all
+        log_avg = self.cs_log_sour
         date  = self.date
-        freqs = self.freqs
-        LRs   = ['L' , 'R' ]
-        fsize=16
+        freqs = np.sort(np.unique(log_all['Freq']).astype(int))
+        LRs   = ['L', 'R']
+        self.freqs = freqs
+
+        fsize = 16
         fig_cslog, ax_cslog = plt.subplots(3, 4, figsize=(fsize, fsize*9/16), sharex=True)
-        for i in range(3):
-            for j in range(4):
-                ax_cslog[i,j].set_rasterized(True)
         tsys_1_l, tsys_1_r, tsys_2_l, tsys_2_r = ax_cslog[0,0], ax_cslog[0,1], ax_cslog[0,2], ax_cslog[0,3]
         tau_1_l , tau_1_r , tau_2_l , tau_2_r  = ax_cslog[1,0], ax_cslog[1,1], ax_cslog[1,2], ax_cslog[1,3]
         el_1_l  , el_1_r  , el_2_l  , el_2_r   = ax_cslog[2,0], ax_cslog[2,1], ax_cslog[2,2], ax_cslog[2,3]
 
-        tsys_1_l.set_title('%sL'%(freqs[0]), fontweight='bold') ; tsys_1_r.set_title('%sR'%(freqs[0]), fontweight='bold')
-        tsys_1_l.set_ylabel(r'$T_{\rm sys}$'+r'$\rm \,(K)$'    , fontsize=15, fontweight='bold')
-        tau_1_l .set_ylabel(r'$\tau$'                          , fontsize=15, fontweight='bold')
-        el_1_l  .set_ylabel(r'$\rm Elevation$'+r'$\rm \,(deg)$', fontsize=12, fontweight='bold')
-        if len(freqs)==2:
-            tsys_2_l.set_title('%sL'%(freqs[1]), fontweight='bold') ; tsys_2_r.set_title('%sR'%(freqs[1]), fontweight='bold')
+        tsys_1_l.set_title('%sL'%(freqs[0])) ; tsys_1_r.set_title('%sR'%(freqs[0]))
+        tsys_1_l.set_ylabel(r'$T_{\rm sys}$'+r'$\rm \,(K)$'    , fontsize=15)
+        tau_1_l .set_ylabel(r'$\tau$'                          , fontsize=15)
+        el_1_l  .set_ylabel(r'$\rm Elevation$'+r'$\rm \,(deg)$', fontsize=12)
+        if self.npol==2:
+            tsys_2_l.set_title('%sL'%(freqs[1])) ; tsys_2_r.set_title('%sR'%(freqs[1]))
 
         axes_xlabel = [tsys_1_l, tsys_1_r, tsys_2_l, tsys_2_r, tau_1_l, tau_1_r, tau_2_l, tau_2_r]
         axes_ylabel = [tsys_1_r, tsys_2_r, tau_1_r , tau_2_l, tau_2_r, el_1_r , el_2_l , el_2_r]
@@ -594,77 +618,93 @@ class CrossScan:
             axes_all[n].xaxis.set_minor_locator(MultipleLocator(1))
 
         project = self.file.split('_%s'%(self.station))[0]
-        fig_cslog.text(0.5, 0.02, '(%s, %s) | UTC (hour)'%(project, date), ha='center', fontsize=15, fontweight='bold')
+        fig_cslog.text(0.5, 0.02, '(%s, %s) | UTC (hour)'%(project, date), ha='center', fontsize=15)
 
         colors = ['pink'     , 'coral', 'red' , 'lime'   , 'green' ,
                   'lightblue', 'aqua' , 'blue', 'magenta', 'purple']
-        for Nfreq, freq in enumerate(freqs):
-            if Nfreq==0:
-                cs_log_all = self.cs_log_all_1
-                cs_log_avg = self.cs_log_sour_1
-                ax_tsys = [tsys_1_l, tsys_1_r]
-                ax_tau  = [tau_1_l , tau_1_r ]
-                ax_el   = [el_1_l  , el_1_r  ]
-            elif Nfreq==1:
-                cs_log_all = self.cs_log_all_2
-                cs_log_avg = self.cs_log_sour_2
-                ax_tsys = [tsys_2_l, tsys_2_r]
-                ax_tau  = [tau_2_l , tau_2_r ]
-                ax_el   = [el_2_l  , el_2_r  ]
 
-            if np.max(cs_log_all['Tsys'])-np.min(cs_log_all['Tsys'])<500:
-                tsys_1_l.set_yscale('linear') ; tsys_1_r.set_yscale('linear')
-                tau_1_l .set_yscale('log')    ; tau_1_r .set_yscale('log')
-                tau_1_l .set_ylim(1e-2, 3e0)  ; tau_1_r .set_ylim(1e-2, 3e0)
-                if len(freqs)==2:
-                    tsys_2_l.set_yscale('linear') ; tsys_2_r.set_yscale('linear')
-                    tau_2_l .set_yscale('log')    ; tau_2_r .set_yscale('log')
-                    tau_2_l .set_ylim(1e-2, 3e0)  ; tau_2_r .set_ylim(1e-2, 3e0)
-            else:
-                tsys_1_l.set_yscale('log')   ; tsys_1_r.set_yscale('log')
-                tau_1_l .set_yscale('log')   ; tau_1_r .set_yscale('log')
-                tau_1_l .set_ylim(1e-2, 3e0) ; tau_1_r .set_ylim(1e-2, 3e0)
-                if len(freqs)==2:
-                    tsys_2_l.set_yscale('log')   ; tsys_2_r.set_yscale('log')
-                    tau_2_l .set_yscale('log')   ; tau_2_r .set_yscale('log')
-                    tau_2_l .set_ylim(1e-2, 3e0) ; tau_2_r .set_ylim(1e-2, 3e0)
-            cs_log_all['Time'] = (cs_log_all['MJD']-Ati(date, format='iso').mjd) * u.day.to(u.hr)
-            tmin, tmax = 0.9*np.min(cs_log_all['Time']), 1.1*np.max(cs_log_all['Time'])
+        log_all["Tsys"][np.isinf(log_all.Tsys.values.astype("f8"))] = np.nan
+        log_all["Tau" ][np.isinf(log_all.Tau .values.astype("f8"))] = np.nan
+        log_all["Time"] = (log_all["MJD"] - Ati(date, format='iso').mjd) * u.day.to(u.hr)
 
-            nrow = [0]
-            sour = cs_log_all['Source'][0]
-            for n in range(cs_log_all.shape[0]):
-                if sour != cs_log_all['Source'][n]:
-                    nrow.append(n)
-                    sour = cs_log_all['Source'][n]
+        date_all = log_all["Date"].values.astype(str)
+        mjd_all = Ati(date_all, format="iso").mjd
+        time_sec = ((mjd_all - int(np.min(mjd_all))) * 24 * 3600)
 
-            for Nsour in range(len(nrow)):
-                if   Nsour//10 < 2:mtype = 'o'
-                elif Nsour//10 >=2:mtype = '^'
-                if   (Nsour//10)%2 !=1:mface = colors[Nsour%10]
-                elif (Nsour//10)%2 ==1:mface = 'none'
-                color = colors[Nsour%10]
-                source = cs_log_all.iloc[nrow[Nsour]]['Source']
-                for NLR, LR in enumerate(LRs):
-                    all_ = cs_log_all.copy()
-                    if Nsour!=len(nrow)-1:
-                        row1, row2 = nrow[Nsour], nrow[Nsour+1]
-                        all_ = all_.iloc[row1:row2].reset_index(drop=True)
+        db = dbs(eps=60, min_samples=1).fit((time_sec).reshape(-1, 1))
+        scannums = db.labels_
+        uscan = np.unique(scannums)
+
+        pols = ["L", "R"]
+        for nscan, scan in enumerate(uscan):
+            log_lr = log_all[scannums == scan].reset_index(drop=True)
+
+            if log_lr.shape[0] == 0:
+                continue
+
+            for npol, pol in enumerate(pols):
+                mask_pol = log_lr["LR_pol"] == pol
+                log_pol = log_lr[mask_pol].reset_index(drop=True)
+
+                if log_pol.shape[0] == 0:
+                    continue
+
+                ax_tsys1 = tsys_1_l if npol == 0 else tsys_1_r
+                ax_tsys2 = tsys_2_l if npol == 0 else tsys_2_r
+                ax_tau1  = tau_1_l  if npol == 0 else tau_1_r
+                ax_tau2  = tau_2_l  if npol == 0 else tau_2_r
+                ax_el1   = el_1_l   if npol == 0 else el_1_r
+                ax_el2   = el_2_l   if npol == 0 else el_2_r
+
+                for nfreq, freq in enumerate(freqs):
+                    val_freq = log_pol["Freq"].values.astype(int)
+                    mask_freq = val_freq == freq
+                    log_freq = log_pol.loc[mask_freq].reset_index(drop=True)
+
+                    if log_freq.shape[0] == 0:
+                        continue
+
+                    if nfreq == 0:
+                        ax_tsys, ax_tau, ax_el = ax_tsys1, ax_tau1, ax_el1
+                    elif nfreq == 1:
+                        ax_tsys, ax_tau, ax_el = ax_tsys2, ax_tau2, ax_el2
+
+                    if npol == 0 and nfreq == 0:
+                        ax_tsys.scatter(log_freq["Time"], log_freq["Tsys"], marker="x", s=30, color=colors[nscan % len(colors)], label=log_freq["Source"][0])
                     else:
-                        all_ = all_.iloc[nrow[-1]:].reset_index(drop=True)
-                    all_ = all_[all_['Freq'].astype(str)==str(freq)]
-                    all_ = all_[all_.LR_pol==LR].reset_index(drop=True)
+                        ax_tsys.scatter(log_freq["Time"], log_freq["Tsys"], marker="x", s=30, color=colors[nscan % len(colors)])
+                    ax_tau .scatter(log_freq["Time"], log_freq["Tau" ], marker="x", s=30, color=colors[nscan % len(colors)])
+                    ax_el  .scatter(log_freq["Time"], log_freq["El"  ], marker="x", s=30, color=colors[nscan % len(colors)])
 
-                    if np.logical_and(NLR==0, Nfreq==0):
-                        ax_tsys[NLR].scatter(all_['Time'], all_['Tsys'], marker=mtype, edgecolor=color, facecolor=mface, label='%s'%(source))
-                        ax_tsys[NLR].legend(ncol=10, fontsize=10, bbox_to_anchor=(4.75, 1.50), fancybox=True)
-                    else:
-                        ax_tsys[NLR].scatter(all_['Time'], all_['Tsys'], marker=mtype, edgecolor=color, facecolor=mface)
-                    ax_tau [NLR].scatter(all_['Time'], all_['Tau' ], marker=mtype, edgecolor=color, facecolor=mface)
-                    ax_el  [NLR].scatter(all_['Time'], all_['El'  ], marker=mtype, edgecolor=color, facecolor=mface)
-            ax_tsys[NLR].set_xlim(tmin, tmax)
-            ax_tau [NLR].set_xlim(tmin, tmax)
-            ax_el  [NLR].set_xlim(tmin, tmax)
+        tsys_min = np.nanmin(log_all["Tsys"])
+        tsys_max = np.nanmax(log_all["Tsys"])
+        tau_min = np.nanmin(log_all["Tau"])
+        tau_max = np.nanmax(log_all["Tau"])
+        tsys_1_l.set_yscale("log")
+        tsys_1_r.set_yscale("log")
+        tsys_2_l.set_yscale("log")
+        tsys_2_r.set_yscale("log")
+        tsys_1_l.set_ylim(0.9*tsys_min, 1.1*tsys_max)
+        tsys_1_r.set_ylim(0.9*tsys_min, 1.1*tsys_max)
+        tsys_2_l.set_ylim(0.9*tsys_min, 1.1*tsys_max)
+        tsys_2_r.set_ylim(0.9*tsys_min, 1.1*tsys_max)
+        tau_1_l.set_ylim(0.0, 1.1*tau_max)
+        tau_1_r.set_ylim(0.0, 1.1*tau_max)
+        tau_2_l.set_ylim(0.0, 1.1*tau_max)
+        tau_2_r.set_ylim(0.0, 1.1*tau_max)
+        tsys_1_l.grid(True)
+        tsys_1_r.grid(True)
+        tsys_2_l.grid(True)
+        tsys_2_r.grid(True)
+        tau_1_l.grid(True)
+        tau_1_r.grid(True)
+        tau_2_l.grid(True)
+        tau_2_r.grid(True)
+        el_1_l.grid(True)
+        el_1_r.grid(True)
+        el_2_l.grid(True)
+        el_2_r.grid(True)
+        tsys_1_l.legend(ncol=10, fontsize=10, bbox_to_anchor=(4.50, 1.50), fancybox=True)
         fig_cslog.savefig(self.path_fig_cs + '../CS_Logs/%s_%s_CSLog.png'%(self.station, self.date))
         close_figure(fig_cslog)
 
@@ -674,7 +714,6 @@ class CrossMCMC:
         self.y       = y
         self.yerr    = yerr
         self.p       = p        # Initial Gaussian-fit parameters, including 'log_f' value
-        self.log_f   = 0
         self.fwhm    = fwhm     # Full-width half maximum of the (Gaussian) beam at a given frequency
         self.nwalker = 4 * 2
         self.nstep   = 2000
@@ -690,7 +729,7 @@ class CrossMCMC:
         yerr = np.array([rms for i in range(len(y))])
 
         nll = lambda *args: -log_likelihood(*args)
-        p0  = np.append(p, 0)
+        p0 = p
         nstep   = self.nstep
         nburn   = int(0.35*nstep)
         ndim    = len(p0)
@@ -700,8 +739,7 @@ class CrossMCMC:
                     bounds=[[+0.8*ymax, +1.2*ymax],
                             [-0.1*fwhm, +0.1*fwhm],
                             [+0.6*fwhm, +1.4*fwhm],
-                            [-3.0*ymin, +3.0*ymin],
-                            [-10     , +1       ]])
+                            [-3.0*ymin, +3.0*ymin]])
 
         pos = p_ml.x + 1e-4 * np.random.randn(int(nwalker), ndim)
         sampler = emcee.EnsembleSampler(nwalker, len(p0), log_probability, args=(x, y, yerr, ymin, ymax, fwhm))
@@ -725,18 +763,16 @@ class CrossMCMC:
 
 
 def log_likelihood(theta, x, y, yerr):
-    peak, offs, fwhm, base, log_f = theta
+    peak, offs, fwhm, base = theta
     model  = Gaussian(x, peak, offs, fwhm, base)
-    sigma2 = yerr**2 + model**2 * np.exp(2 * log_f)
-    return -0.5 * np.sum((y-model)**2 / sigma2 + np.log(sigma2))
+    return -0.5 * np.sum((y - model)**2 / yerr**2 + np.log(2 * np.pi * yerr**2))
 
 def log_prior(theta, ymin, ymax, fwhm):
-    peak, offs, fwgm_f, base, log_f = theta
+    peak, offs, fwgm_f, base = theta
     if +0.6*ymax < peak   < +1.5*ymax and\
        -20       < offs   < +20       and\
        +0.4*fwhm < fwgm_f < +1.6*fwhm and\
-       -3.0*ymin < base   < +3.0*ymin and\
-       -10       < log_f  < +1        :
+       -3.0*ymin < base   < +3.0*ymin :
         return 0.0
     return -np.inf
 

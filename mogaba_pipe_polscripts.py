@@ -1,11 +1,13 @@
 
 from __main__ import *
+from scipy import optimize
 import pyclass as p
 
 class PosPolScan:
     def __init__(self,
-                 mode =None, scannum=None, npol=None, delay_fit=False,
-                 delay=0   , c_p    =None, g_p =None, station  =None
+                 mode=None, scannum=None, npol=None, delay_fit=False,
+                 delay=0, c_p=None, g_p=None, station=None,
+                 bchan=500, echan=3500
                  ):
         self.c_p        = c_p
         self.g_p        = g_p
@@ -41,6 +43,8 @@ class PosPolScan:
         self.data_unpol = None
         self.data_aref  = None
         self.sideband   = 1
+        self.bchan      = bchan
+        self.echan      = echan
 
     def read_scan(self, flag_subchan=None):
         c_p = self.c_p
@@ -60,15 +64,15 @@ class PosPolScan:
         """
         self.v0, self.v0_vfc, c_p, g_p = read_vane(c_p, g_p, scannum)
 
-        nch   = len(self.v0[0])
+        nch = len(self.v0[0])
         chans = np.arange(nch)
-        Lpol  = self.v0[2] + 1j*self.v0[3]  # Linearly polarized intensity
+        Lpol = self.v0[2] + 1j * self.v0[3]  # Linearly polarized intensity
 
-        c_p("get %s"%(scannum+4*npol))
-        tsys1=float(g_p.tsys)    # LL
+        c_p("get %s"%(scannum + 4 * npol))
+        tsys1 = float(g_p.tsys) # LL
 
-        c_p("get %s"%(scannum+4*npol+1))
-        tsys2=float(g_p.tsys)    # RR
+        c_p("get %s"%(scannum + 4 * npol + 1))
+        tsys2 = float(g_p.tsys) # RR
 
         if g_p.image > g_p.frequency:
             self.sideband = -1   # lower side band
@@ -79,8 +83,8 @@ class PosPolScan:
             delay = fit_delay(Lpol)
 
         if delay != 0:
-            phs        = 2*pi*chans/nch*delay
-            Lpol       = Lpol*exp(-1j*phs)            # rotate phase as amount of delay
+            phs = np.arange(nch) * delay
+            Lpol = Lpol * exp(-1j*phs)            # rotate phase as amount of delay
             self.v0[2] = real(Lpol)
             self.v0[3] = imag(Lpol)
 
@@ -88,22 +92,20 @@ class PosPolScan:
             self.v = conv(self.v0, binnum)[:, binnum: -binnum]
         else:
             self.v = self.v0
-        self.vc = self.v[2]+1j*self.v[3]
+        self.vc = self.v[2] + 1j * self.v[3]
 
         self.m0, self.r0, self.m0_vfc, self.r0_vfc, self.az, self.el, c_p, g_p = read_wps(c_p, g_p, scannum+4*npol, npol, nswitch, self.mode)
 
-        if flag_subchan == "all" or type(flag_subchan) == type(list()):
+        if flag_subchan == "all" or isinstance(flag_subchan, list):
             if flag_subchan == "all":
                 flag_subchan = np.arange(self.m0.shape[0])
 
             mask_flag = np.zeros(self.m0.shape[0], dtype=bool)
             mask_flag[flag_subchan] = True
-            self.m0[mask_flag,:,:] = np.nan
-            self.r0[mask_flag,:,:] = np.nan
-            self.m0_vfc[mask_flag,:,:] = np.nan
-            self.r0_vfc[mask_flag,:,:] = np.nan
-            self.az[mask_flag] = np.nan
-            self.el[mask_flag] = np.nan
+            self.m0[mask_flag,:,:] *= np.nan
+            self.r0[mask_flag,:,:] *= np.nan
+            self.m0_vfc[mask_flag,:,:] *= np.nan
+            self.r0_vfc[mask_flag,:,:] *= np.nan
 
         self.m0 = np.nanmean(self.m0, axis=0)
         self.r0 = np.nanmean(self.r0, axis=0)
@@ -121,11 +123,10 @@ class PosPolScan:
         # az     : az list
         # el     : el list
 
+        Lpol = self.d0[2] + 1j*self.d0[3]
         if delay != 0:
-            Lpol       = self.d0[2] + 1j*self.d0[3]
-
-            phs        = 2*pi*chans/nch*delay
-            Lpol       = Lpol*exp(-1j*phs)
+            phs = np.arange(nch) * delay
+            Lpol = Lpol*exp(-1j*phs)
             self.d0[2] = real(Lpol)
             self.d0[3] = imag(Lpol)
 
@@ -138,24 +139,25 @@ class PosPolScan:
             self.d = conv(self.d0, binnum)[:, binnum: -binnum]
         else:
             self.d = self.d0
-        self.c = self.d[2]+1.j*self.d[3]                    # definition of linear polarization // L = Q + j*U
+        self.c = self.d[2] + 1.j*self.d[3]  # definition of linear polarization // L = Q + j*U
 
         self.ra, self.dec = float(g_p.lam), float(g_p.bet)  # in radian
         self.bin_num = binnum
         self.nswitch = nswitch
         self.scannum = scannum
-        self.tau0    = float(g_p.tau_signal)
-        self.tchop   = float(g_p.tchop)
-        self.tcold   = float(g_p.tcold)
-        self.delay   = delay
-        self.tsys1   = tsys1
-        self.tsys2   = tsys2
+        self.tau0 = float(g_p.tau_signal)
+        self.tchop = float(g_p.tchop)
+        self.tcold = float(g_p.tcold)
+        self.delay = delay
+        self.tsys1 = tsys1
+        self.tsys2 = tsys2
 
 
 class PosPolData:
     def __init__(self,
-                 mode =None, scannum=None, npol=None, delay_fit=False,
-                 delay=0   , c_p    =None, g_p =None, station  =None
+                 mode=None, scannum=None, npol=None, delay_fit=False,
+                 delay=0, c_p=None, g_p=None, station =None,
+                 bchan=500, echan=3500
                  ):
         self.c_p        = c_p
         self.g_p        = g_p
@@ -191,6 +193,8 @@ class PosPolData:
         self.data_unpol = None
         self.data_aref  = None
         self.sideband   = 1
+        self.bchan      = bchan
+        self.echan      = echan
 
         if   self.station=='KPC' : self.ant_n, self.ant_lat, self.ant_lon,  self.ant_height = name_PC, lat_PC, lon_PC,  height_PC
         elif self.station=='KYS' : self.ant_n, self.ant_lat, self.ant_lon,  self.ant_height = name_YS, lat_YS, lon_YS,  height_YS
@@ -201,16 +205,14 @@ class PosPolData:
     def cal_leak(self):
         if self.mode != 'unpol':
             raise Exception("Mode mismatch in calculating leakage term")
-        self.leak = self.c/(self.d[:,0]*self.d[:,1])**0.5
-
+        self.leak = self.c / (self.d[:,0] * self.d[:,1])**0.5
 
     def cal_stokes(self):
         if self.mode == 'unpol':
             raise Exception("Mode mismatch!")
-            abort()
+
         if self.data_unpol == None:
             raise Exception("Data for a unpolarized source do not exit!")
-            abort()
 
         unpol   = self.data_unpol
         nscans  = len(self.scannums)
@@ -224,8 +226,8 @@ class PosPolData:
         r0 = (v[:,0]/uv0)**0.5
         r1 = (v[:,1]/uv1)**0.5
 
-        c_phase = exp(1.j*(angle(np.nanmean(unpol.vc, axis=0))-angle(self.vc)))
-        c_phase_mean = angle(np.nanmean(c_phase[:,500:3500]))
+        c_phase = np.exp(1.j*(np.angle(np.nanmean(unpol.vc, axis=0)) - np.angle(self.vc)))
+        c_phase_mean = np.angle(np.nanmean(c_phase[:,self.bchan:self.echan]))
 
         self._r0 = r0
         self._r1 = r1
@@ -235,15 +237,32 @@ class PosPolData:
         sv = []
         tr = []
         tl = []
+        norm1 = []
+        norm2 = []
+        Tvfc1_unpol = np.abs(np.nanmean(unpol.d_vfc[:,:,0,0]))
+        Tvfc2_unpol = np.abs(np.nanmean(unpol.d_vfc[:,:,1,0]))
+        Tvfc_mean_unpol = (Tvfc1_unpol * Tvfc2_unpol)**0.5
         for i in range(nscans):
-            _si = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]+1./r1[i]**2*self.d[i,1]/unpol_d[1])
-            _sv = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]-1./r1[i]**2*self.d[i,1]/unpol_d[1])
+            # norm1_ = 1
+            # norm2_ = 1
+            # _si = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]+1./r1[i]**2*self.d[i,1]/unpol_d[1])
+            # _sv = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]-1./r1[i]**2*self.d[i,1]/unpol_d[1])
+
+            norm1_ = np.abs(np.nanmean(1./r0[i]**2*self.d[i,0]/unpol_d[0]) * Tvfc_mean_unpol / np.nanmean(self.d_vfc[i,:,0,0]))
+            norm2_ = np.abs(np.nanmean(1./r1[i]**2*self.d[i,1]/unpol_d[1]) * Tvfc_mean_unpol / np.nanmean(self.d_vfc[i,:,1,0]))
+            _si = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]/norm1_ + 1./r1[i]**2*self.d[i,1]/unpol_d[1]/norm2_)
+            _sv = 0.5*(1./r0[i]**2*self.d[i,0]/unpol_d[0]/norm1_ - 1./r1[i]**2*self.d[i,1]/unpol_d[1]/norm2_)
+
             _tr = 1./r0[i]**2*self.d[i,0]/unpol_d[0]
             _tl = 1./r1[i]**2*self.d[i,1]/unpol_d[1]
             si.append(_si)
             sv.append(_sv)
             tr.append(_tr)
             tl.append(_tl)
+            norm1.append(norm1_)
+            norm2.append(norm2_)
+
+
 
         self.si = np.array(si)
         self.sv = np.array(sv)
@@ -256,7 +275,11 @@ class PosPolData:
         cc = []
         xamp = 1. / (np.nanmean(unpol.d[:,0], axis=0) * np.nanmean(unpol.d[:,1], axis=0))**0.5
         for i in range(nscans):
-            _cc = xamp * (self.c[i] / r0[i] / r1[i] * exp(1j*c_phase_mean) - self.si[i] * unpol_c) * exp(-1j*angle(leak))
+            _cc = xamp *\
+                    (
+                        self.c[i] / r0[i] / r1[i] / np.sqrt(np.abs(norm1[i] * norm2[i]))
+                        * np.exp(+1j*c_phase_mean) - self.si[i] * unpol_c
+                    ) * np.exp(-1j*np.angle(leak))
             cc.append(_cc)
         self.cc = np.array(cc)
 
@@ -267,7 +290,7 @@ class PosPolData:
         az  = self.az
         el  = self.el
         sin_pa = cos(lat)/cos(dec)*sin(az)
-        cos_pa = (sin(lat)-sin(dec)*sin(el))/(cos(dec)*cos(el))
+        cos_pa = (sin(lat)-sin(dec)*sin(el)) / (cos(dec)*cos(el))
         self.p_angle = angle(cos_pa+1.j*sin_pa)
         self.out_pang = pd.DataFrame([self.p_angle * u.rad.to(u.deg)], columns=["pang{0}".format(i+1) for i in range(len(self.p_angle))])
 
@@ -336,28 +359,51 @@ class dsmCal:
 
 dc = dsmCal()
 
-def fit_delay(Lpol):
-    pfft   = np.fft.fft(Lpol)
-    pfft_a = np.absolute(pfft)
-    n      = len(Lpol)
-    argmax = pfft_a.argmax()
+def fit_delay(lpol):
+    # pfft = np.fft.fft(lpol)
+    # pfft_a = np.absolute(pfft)
+    # n = len(lpol)
+    # argmax = pfft_a.argmax()
 
-    if np.logical_and(1<=argmax, argmax<=4094):
-        y  = pfft_a[argmax-1:argmax+2]
-        r  = np.polyfit(np.arange(-1,2), y, 2)   # 2nd order polynomial fitting
-        x0 = -r[1]/r[0]/2
-        delay = argmax+x0
-    else:
-        if argmax < 1:
-            delay_offset = 3
-        else:
-            delay_offset = -3
-        phs = 2*np.pi*np.arange(n)/n*delay_offset
-        Lpol3 = Lpol*exp(-1.j*phs)
-        delay = fit_delay(Lpol3)+delay_offset
+    # if (1 <= argmax) & (argmax <= 4094):
+    #     y = pfft_a[argmax-1:argmax+2]
+    #     r = np.polyfit(np.arange(-1,2), y, 2)   # 2nd order polynomial fitting
+    #     x0 = -r[1]/r[0]/2
+    #     delay = argmax+x0
+    # else:
+    #     if argmax < 1:
+    #         delay_offset = 3
+    #     else:
+    #         delay_offset = -3
+    #     phs = 2*np.pi*np.arange(n)/n*delay_offset
+    #     Lpol3 = Lpol*exp(-1.j*phs)
+    #     delay = fit_delay(Lpol3)+delay_offset
 
-    if delay > n/2:
-        delay = delay - n
+    # if delay > n/2:
+    #     delay = delay - n
+
+    lpol = lpol[500:3500]
+    n = len(lpol)
+    nzp = 100 * n
+    zp_lpol = np.pad(lpol, (0, nzp - n), mode="constant")
+    fft = np.fft.fft(zp_lpol)
+    xout = np.fft.fftfreq(nzp, d=1)
+    delay = xout[np.argmax(np.abs(fft))] * 2 * np.pi
+
+    # print(soln.x)
+    # fitphs = delay * np.arange(n)
+    # fitpol = np.exp(1j * fitphs)
+    # fig, axes = plt.subplots(4, 1, figsize=(16, 10))
+    # axes[0].plot(np.arange(3000), np.unwrap(np.angle(Lpol[500:3500]),period=np.pi), c="black")
+    # axes[0].plot(np.arange(3000), fitphs[500:3500], c="red")
+    # axes[1].plot(np.arange(3000), np.unwrap(np.angle(Lpol[500:3500]), period=np.pi) - fitphs[500:3500], c="red")
+    # axes[2].plot(np.arange(n), Lpol.real/np.abs(Lpol), c="black")
+    # axes[2].plot(np.arange(n), Lpol.imag/np.abs(Lpol), c="red")
+    # axes[3].loglog(np.arange(n), np.abs(np.fft.fft(Lpol.real/np.abs(Lpol))), c="black")
+    # axes[3].loglog(np.arange(n), np.abs(np.fft.fft(Lpol.imag/np.abs(Lpol))), c="red")
+    # fig.tight_layout()
+    # plt.show()
+    # sys.exit()
     return delay
 
 def conv(pol, bin_num):
